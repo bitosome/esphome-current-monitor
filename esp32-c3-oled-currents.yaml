@@ -155,7 +155,7 @@ display:
           return;
         }
 
-        if (value >= alert_threshold && !blink_on) {
+        if (value > alert_threshold && !blink_on) {
           return;
         }
 
@@ -199,7 +199,7 @@ light:
               if (isnan(val) || val <= 0.0f) {
                 return 0;
               }
-              if (val >= ${alert_current_threshold}) {
+              if (val > ${alert_current_threshold}) {
                 return 4;
               }
               if (val <= 4.0f) {
@@ -276,7 +276,7 @@ light:
                 for (int j = 0; j < 4; j++) it[base + j] = col_off;
                 continue;
               }
-              bool over = val >= max_a;
+              bool over = val > max_a;
               for (int j = 0; j < 4; j++) {
                 if (j >= leds_on) {
                   it[base + j] = col_off;

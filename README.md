@@ -42,7 +42,7 @@ They are displayed as:
 - Value format: `xx.xxA`
 - Unavailable format: `--.--A`
 - Alert threshold: `16.0A`
-- If a value is `16.0A` or above, the numeric value blinks continuously
+- If a value is above `16.0A`, the numeric value blinks continuously
 - The current repo configuration is set up for upside-down mounting with:
   - `rotation: 0`
   - `flip_x: false`
@@ -69,8 +69,8 @@ Level mapping:
 - `0A .. 4A`: 1 LED
 - `4A .. 8A`: 2 LEDs
 - `8A .. 12A`: 3 LEDs
-- `12A .. <16A`: 4 LEDs
-- `>= 16A`: top red LED blinks
+- `12A .. 16A`: 4 LEDs
+- `> 16A`: top red LED blinks
 
 Each row color is exposed as a separate light profile so the colors can be adjusted from Home Assistant:
 
