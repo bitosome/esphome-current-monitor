@@ -1,0 +1,397 @@
+substitutions:
+  device_friendly_name: "Current monitor"
+  device_name: "current-monitor"
+  api_key: !secret api_key
+  wifi_ssid: !secret wifi_ssid
+  wifi_password: !secret wifi_password
+  ota_password: !secret ota_password
+  ap_password: !secret ap_password
+  device_make: "ABrobot"
+  device_model: "ESP32-C3 OLED Development Board 0.42 inch"
+  phase_a_entity: "sensor.shelly_pro_3em_1_phase_a_current"
+  phase_b_entity: "sensor.shelly_pro_3em_1_phase_b_current"
+  phase_c_entity: "sensor.shelly_pro_3em_1_phase_c_current"
+  alert_current_threshold: "16.0"
+  log_level: INFO
+  timezone: "Europe/Tallinn"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${device_friendly_name}"
+  comment: "${device_model} by ${device_make}"
+  name_add_mac_suffix: false
+  on_boot:
+    priority: -100
+    then:
+      - if:
+          condition:
+            lambda: 'return id(seed_row_profiles_on_boot);'
+          then:
+            - script.execute: seed_row_profiles
+      - script.execute: apply_led_strip_state
+
+esp32:
+  board: airm2m_core_esp32c3
+  variant: esp32c3
+  framework:
+    type: arduino
+    version: recommended
+
+preferences:
+  flash_write_interval: 10s
+
+logger:
+  level: "${log_level}"
+  baud_rate: 0
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: "${api_key}"
+
+ota:
+  - platform: esphome
+    password: "${ota_password}"
+    on_begin:
+      then:
+        - lambda: 'id(seed_row_profiles_on_boot) = true;'
+
+wifi:
+  fast_connect: false
+  power_save_mode: none
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+  reboot_timeout: 0s
+  ap:
+    ssid: "${device_name}"
+    password: "${ap_password}"
+
+captive_portal:
+
+globals:
+  - id: seed_row_profiles_on_boot
+    type: bool
+    restore_value: true
+    initial_value: "true"
+
+script:
+  - id: apply_led_strip_state
+    then:
+      - light.turn_on:
+          id: led_strip
+          effect: "vu_meter"
+
+  - id: seed_row_profiles
+    mode: restart
+    then:
+      - lambda: |-
+          auto seed_profile = [&](esphome::light::LightState *profile, float brightness, float red, float green, float blue) {
+            auto call = profile->turn_on();
+            call.set_brightness(brightness);
+            call.set_rgb(red, green, blue);
+            call.perform();
+          };
+          seed_profile(id(led_row_1_profile), 0.01f, 0.0f, 1.0f, 0.0f);
+          seed_profile(id(led_row_2_profile), 0.01f, 1.0f, 1.0f, 0.0f);
+          seed_profile(id(led_row_3_profile), 0.01f, 1.0f, 0.65f, 0.0f);
+          seed_profile(id(led_row_4_profile), 0.01f, 1.0f, 0.0f, 0.0f);
+      - lambda: 'id(seed_row_profiles_on_boot) = false;'
+      - script.execute: refresh_led_strip_if_on
+
+  - id: refresh_led_strip_if_on
+    then:
+      - if:
+          condition:
+            light.is_on: led_strip
+          then:
+            - script.execute: apply_led_strip_state
+
+# The onboard OLED is wired internally to GPIO6 (SCL) and GPIO5 (SDA),
+# not to the exposed header I2C pins GPIO9/GPIO8 shown in the product sheet.
+i2c:
+  sda: GPIO5
+  scl: GPIO6
+  scan: true
+
+font:
+  - file: "gfonts://Roboto"
+    id: oled_font
+    size: 10
+
+sensor:
+  - platform: homeassistant
+    id: phase_a_current
+    entity_id: ${phase_a_entity}
+    internal: true
+
+  - platform: homeassistant
+    id: phase_b_current
+    entity_id: ${phase_b_entity}
+    internal: true
+
+  - platform: homeassistant
+    id: phase_c_current
+    entity_id: ${phase_c_entity}
+    internal: true
+
+display:
+  - platform: ssd1306_i2c
+    id: oled
+    model: "SSD1306 72x40"
+    address: 0x3C
+    rotation: 0
+    flip_x: false
+    flip_y: false
+    update_interval: 500ms
+    lambda: |-
+      const bool blink_on = ((millis() / 500) % 2) == 0;
+      const float alert_threshold = ${alert_current_threshold};
+
+      auto draw_line = [&](int y, const char *phase, float value) {
+        it.printf(0, y, id(oled_font), "%s:", phase);
+
+        if (isnan(value)) {
+          it.printf(14, y, id(oled_font), "--.--A");
+          return;
+        }
+
+        if (value >= alert_threshold && !blink_on) {
+          return;
+        }
+
+        it.printf(14, y, id(oled_font), "%5.2fA", value);
+      };
+
+      draw_line(0, "L1", id(phase_a_current).state);
+      draw_line(13, "L2", id(phase_b_current).state);
+      draw_line(26, "L3", id(phase_c_current).state);
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: led_strip_base
+    rgb_order: GRB
+    chipset: ws2812
+    pin: GPIO2
+    num_leds: 12
+    gamma_correct: 1.0
+    internal: true
+
+  - platform: partition
+    id: led_strip
+    name: "Current LEDs"
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_OFF
+    segments:
+      - id: led_strip_base
+        from: 0
+        to: 11
+    on_turn_on:
+      then:
+        - script.execute: apply_led_strip_state
+    effects:
+      - addressable_lambda:
+          name: "vu_meter"
+          update_interval: 500ms
+          lambda: |-
+            const bool blink_on = ((millis() / 500) % 2) == 0;
+            auto led_steps = [&](float val) -> int {
+              if (isnan(val) || val <= 0.0f) {
+                return 0;
+              }
+              if (val >= ${alert_current_threshold}) {
+                return 4;
+              }
+              if (val <= 4.0f) {
+                return 1;
+              }
+              if (val <= 8.0f) {
+                return 2;
+              }
+              if (val <= 12.0f) {
+                return 3;
+              }
+              return 4;
+            };
+            // LED strip layout: 12 LEDs, 3 columns of 4.
+            // Column 0 = L1 (indices 0-3), column 1 = L2 (4-7), column 2 = L3 (8-11).
+            // Within each column index 0 = bottom (green), 3 = top (red).
+            const float currents[3] = {
+              id(phase_a_current).state,
+              id(phase_b_current).state,
+              id(phase_c_current).state
+            };
+            const float max_a = ${alert_current_threshold};
+            float level = 1.0f;
+            id(led_strip).current_values_as_brightness(&level);
+            const float scaled_level = 0.12f + (0.88f * level);
+            auto scale_channel = [&](uint8_t channel) -> uint8_t {
+              if (channel == 0) {
+                return 0;
+              }
+              int value = (int)roundf(channel * scaled_level);
+              if (value > 255) {
+                value = 255;
+              }
+              return (uint8_t)value;
+            };
+            auto scaled = [&](uint8_t red, uint8_t green, uint8_t blue) -> Color {
+              return Color(scale_channel(red), scale_channel(green), scale_channel(blue));
+            };
+            auto profile_color = [&](esphome::light::LightState *profile) -> Color {
+              if (!profile->remote_values.is_on()) {
+                return Color(0, 0, 0);
+              }
+
+              const float profile_brightness = profile->remote_values.get_brightness();
+              if (profile_brightness <= 0.0f) {
+                return Color(0, 0, 0);
+              }
+
+              return scaled(
+                (uint8_t) roundf(profile->remote_values.get_red() * profile_brightness * 255.0f),
+                (uint8_t) roundf(profile->remote_values.get_green() * profile_brightness * 255.0f),
+                (uint8_t) roundf(profile->remote_values.get_blue() * profile_brightness * 255.0f)
+              );
+            };
+            auto row_color = [&](int row) -> Color {
+              switch (row) {
+                case 0:
+                  return profile_color(id(led_row_1_profile));
+                case 1:
+                  return profile_color(id(led_row_2_profile));
+                case 2:
+                  return profile_color(id(led_row_3_profile));
+                default:
+                  return profile_color(id(led_row_4_profile));
+              }
+            };
+            const Color col_off(0, 0, 0);
+
+            for (int p = 0; p < 3; p++) {
+              float val = currents[p];
+              int base = p * 4;
+              int leds_on = led_steps(val);
+              if (leds_on == 0) {
+                for (int j = 0; j < 4; j++) it[base + j] = col_off;
+                continue;
+              }
+              bool over = val >= max_a;
+              for (int j = 0; j < 4; j++) {
+                if (j >= leds_on) {
+                  it[base + j] = col_off;
+                } else if (over && j == 3 && !blink_on) {
+                  it[base + j] = col_off;
+                } else {
+                  it[base + j] = row_color(j);
+                }
+              }
+            }
+
+  - platform: partition
+    id: led_row_1_profile
+    name: "LED Row 1 Color Profile"
+    icon: mdi:palette
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_ON
+    initial_state:
+      state: true
+      brightness: 1%
+      red: 0%
+      green: 100%
+      blue: 0%
+    on_state:
+      then:
+        - script.execute: refresh_led_strip_if_on
+    segments:
+      - id: led_strip_base
+        from: 0
+        to: 0
+      - id: led_strip_base
+        from: 4
+        to: 4
+      - id: led_strip_base
+        from: 8
+        to: 8
+
+  - platform: partition
+    id: led_row_2_profile
+    name: "LED Row 2 Color Profile"
+    icon: mdi:palette
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_ON
+    initial_state:
+      state: true
+      brightness: 1%
+      red: 100%
+      green: 100%
+      blue: 0%
+    on_state:
+      then:
+        - script.execute: refresh_led_strip_if_on
+    segments:
+      - id: led_strip_base
+        from: 1
+        to: 1
+      - id: led_strip_base
+        from: 5
+        to: 5
+      - id: led_strip_base
+        from: 9
+        to: 9
+
+  - platform: partition
+    id: led_row_3_profile
+    name: "LED Row 3 Color Profile"
+    icon: mdi:palette
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_ON
+    initial_state:
+      state: true
+      brightness: 1%
+      red: 100%
+      green: 65%
+      blue: 0%
+    on_state:
+      then:
+        - script.execute: refresh_led_strip_if_on
+    segments:
+      - id: led_strip_base
+        from: 2
+        to: 2
+      - id: led_strip_base
+        from: 6
+        to: 6
+      - id: led_strip_base
+        from: 10
+        to: 10
+
+  - platform: partition
+    id: led_row_4_profile
+    name: "LED Row 4 Color Profile"
+    icon: mdi:palette
+    gamma_correct: 1.0
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_ON
+    initial_state:
+      state: true
+      brightness: 1%
+      red: 100%
+      green: 0%
+      blue: 0%
+    on_state:
+      then:
+        - script.execute: refresh_led_strip_if_on
+    segments:
+      - id: led_strip_base
+        from: 3
+        to: 3
+      - id: led_strip_base
+        from: 7
+        to: 7
+      - id: led_strip_base
+        from: 11
+        to: 11
