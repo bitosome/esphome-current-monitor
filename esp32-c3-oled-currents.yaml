@@ -8,9 +8,9 @@ substitutions:
   ap_password: !secret ap_password
   device_make: "ABrobot"
   device_model: "ESP32-C3 OLED Development Board 0.42 inch"
-  phase_a_entity: "sensor.shelly_pro_3em_1_phase_a_current"
-  phase_b_entity: "sensor.shelly_pro_3em_1_phase_b_current"
-  phase_c_entity: "sensor.shelly_pro_3em_1_phase_c_current"
+  phase_a_entity: "sensor.shelly_pro_3em_3ct63_1_phase_a_current"
+  phase_b_entity: "sensor.shelly_pro_3em_3ct63_1_phase_b_current"
+  phase_c_entity: "sensor.shelly_pro_3em_3ct63_1_phase_c_current"
   alert_current_threshold: "16.0"
   log_level: INFO
   timezone: "Europe/Tallinn"
@@ -214,7 +214,9 @@ light:
               return 4;
             };
             // LED strip layout: 12 LEDs, 3 columns of 4.
-            // Column 0 = L1 (indices 0-3), column 1 = L2 (4-7), column 2 = L3 (8-11).
+            // The strip is mounted so LED index 0 is the right-most column.
+            // Map so the left-most physical column shows L1, then L2, then L3:
+            //   L1 -> indices 8-11 (left), L2 -> 4-7 (middle), L3 -> 0-3 (right).
             // Within each column index 0 = bottom (green), 3 = top (red).
             const float currents[3] = {
               id(phase_a_current).state,
@@ -270,7 +272,7 @@ light:
 
             for (int p = 0; p < 3; p++) {
               float val = currents[p];
-              int base = p * 4;
+              int base = (2 - p) * 4;
               int leds_on = led_steps(val);
               if (leds_on == 0) {
                 for (int j = 0; j < 4; j++) it[base + j] = col_off;

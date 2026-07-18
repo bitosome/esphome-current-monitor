@@ -25,9 +25,9 @@ Important board note:
 
 The config imports these Home Assistant sensors:
 
-- `sensor.shelly_pro_3em_1_phase_a_current`
-- `sensor.shelly_pro_3em_1_phase_b_current`
-- `sensor.shelly_pro_3em_1_phase_c_current`
+- `sensor.shelly_pro_3em_3ct63_1_phase_a_current`
+- `sensor.shelly_pro_3em_3ct63_1_phase_b_current`
+- `sensor.shelly_pro_3em_3ct63_1_phase_c_current`
 
 They are displayed as:
 
